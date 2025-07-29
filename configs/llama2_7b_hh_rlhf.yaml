@@ -1,0 +1,69 @@
+# Configuration for Dual-Head training on LLaMA-2-7B with HH-RLHF
+# This config reproduces the paper's main experimental setup
+
+model:
+  backbone_name_or_path: "meta-llama/Llama-2-7b-hf"
+  freeze_backbone: true
+  
+  # Head configuration
+  lm_bias: false
+  rm_bias: false
+  rm_intermediate_size: null  # Use same as hidden_size
+  rm_activation: "silu"
+  rm_dropout: 0.1
+  
+  # Gating configuration
+  gating_num_heads: 8
+  gating_intermediate_size: null  # Use hidden_size // 4
+  gating_activation: "gelu"
+  gating_dropout: 0.1
+  gating_use_layer_norm: true
+  
+  # Fusion configuration
+  learnable_temperature: false
+  initial_temperature: 1.0
+
+training:
+  # Loss weights (paper values)
+  lambda_r: 1.0      # Preference loss weight
+  lambda_g: 0.01     # Gating regularization weight  
+  beta_r: 1.0        # Reward model temperature
+  
+  # Standard training parameters
+  num_train_epochs: 3
+  per_device_train_batch_size: 4
+  per_device_eval_batch_size: 8
+  gradient_accumulation_steps: 4
+  learning_rate: 5e-5
+  weight_decay: 0.01
+  warmup_ratio: 0.1
+  
+  # Optimization
+  fp16: false
+  bf16: true
+  gradient_checkpointing: true
+  dataloader_num_workers: 4
+  
+  # Logging and saving
+  logging_steps: 10
+  save_steps: 500
+  eval_steps: 500
+  evaluation_strategy: "steps"
+  save_strategy: "steps"
+  load_best_model_at_end: true
+  metric_for_best_model: "eval_loss"
+
+data:
+  dataset_name: "Anthropic/hh-rlhf"
+  dataset_config_name: null
+  max_seq_length: 2048
+  preprocessing_num_workers: 4
+  training_mode: "preference"  # preference, sft, or mixed
+  sft_ratio: 0.1  # For mixed training
+
+system:
+  seed: 42
+  output_dir: "./outputs/dual_head_llama2_7b_hh_rlhf"
+  report_to: "wandb"
+  project_name: "dual-head-iclr2026"
+  run_name: "llama2_7b_hh_rlhf_main"
