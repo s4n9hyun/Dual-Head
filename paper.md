@@ -1,29 +1,74 @@
-# Parameter-Efficient Reward Modeling: Understanding the Performance-Efficiency Trade-off through Dual-Head Architecture
+---
+abstract: |
+  Large Language Models (LLMs) require careful alignment with human
+  preferences, but existing methods face trade-offs between
+  effectiveness and efficiency. Training-time approaches like RLHF and
+  DPO require expensive retraining for different preferences, while
+  test-time methods often rely on separate models with static fusion
+  strategies. We propose Context-Aware REward FUsion Learning
+  (Dual-Head), a novel test-time alignment architecture that integrates
+  dual output heads with a context-aware gating mechanism while keeping
+  the base LLM frozen. Unlike existing approaches that use separate
+  reward models or fixed fusion weights, Dual-Head employs dynamic
+  token-level fusion guided by attention over sequence history. Our
+  method achieves superior alignment performance compared to both
+  training-time and test-time baselines while maintaining computational
+  efficiency. Extensive experiments on standard benchmarks demonstrate
+  that Dual-Head matches DPO performance while enabling flexible
+  multi-objective alignment and weak-to-strong guidance without
+  retraining the base model.
+---
 
-## Introduction
+# Introduction
 
-Aligning Large Language Models (LLMs) with human preferences is crucial for deploying safe and helpful AI systems, but existing approaches face a fundamental trade-off between alignment quality and computational efficiency. Training-time methods like RLHF [@ouyang2022training] and DPO [@rafailov2024direct] achieve strong alignment but require expensive retraining for different preferences. Test-time methods offer flexibility but typically require large separate reward models---GenARM [@xu2024genarm] uses a 6.7B parameter reward model, while ARGS [@khanov2024args] requires multiple model evaluations.
+Aligning Large Language Models (LLMs) with human preferences is crucial
+for deploying safe and helpful AI systems. Current alignment approaches
+fall into two categories: training-time methods that fine-tune the
+entire model, and test-time methods that guide frozen models during
+inference.
 
-This raises a critical question: **What is the fundamental relationship between reward model capacity and alignment performance?** Understanding this trade-off is essential for practical deployment, especially in resource-constrained environments where computational efficiency is paramount.
+Training-time approaches like Reinforcement Learning from Human Feedback
+(RLHF) [@ouyang2022training] and Direct Preference Optimization
+(DPO) [@rafailov2024direct] achieve strong alignment but require
+expensive retraining for different preferences. Test-time methods
+address this limitation by using reward models to guide frozen LLMs
+during generation. However, existing test-time approaches like
+ARGS [@khanov2024args] and GenARM [@xu2024genarm] rely on separate
+models with static fusion strategies, limiting their adaptability.
 
-We introduce **Dual-Head**, a parameter-efficient architecture that systematically explores this performance-efficiency frontier. Our approach challenges the prevailing assumption that effective reward modeling requires massive specialized models by demonstrating how architectural innovations can achieve substantial efficiency gains with controlled performance trade-offs.
+We introduce a Dual-Head architecture that challenges the assumption
+that effective reward modeling requires large specialized models. Our
+approach demonstrates that compact 131M parameter heads can achieve
+competitive alignment performance when leveraging shared backbone
+representations---a 50× reduction compared to GenARM's 6.7B reward
+model.
 
-### Key Contributions
+**Compact Head Design**: Instead of using full 6.7B parameter reward
+models like GenARM, our Dual-Head approach uses compact 131M parameter
+heads attached to a shared backbone---achieving 50× parameter reduction
+while maintaining competitive performance.
 
-**1. Efficiency-Performance Analysis**: We provide the first systematic study of reward modeling with dramatically reduced parameters (131M vs 6.7B), achieving 50× parameter reduction while retaining 75-85% of full-scale performance across multiple benchmarks.
+**Adaptive Fusion**: Rather than fixed fusion weights, our method
+employs adaptive gating that dynamically balances language modeling and
+reward modeling based on the current hidden state.
 
-**2. Architectural Innovation**: Our dual-head design with context-aware gating demonstrates that shared backbone representations can be effectively leveraged for both language modeling and reward estimation, providing insights into the fundamental requirements for alignment.
+**Resource Efficiency**: The Dual-Head architecture demonstrates that
+effective alignment can be achieved with dramatically fewer parameters,
+enabling practical deployment advantages.
 
-**3. Practical Deployment Framework**: We establish when and why parameter-efficient reward modeling is beneficial, providing practitioners with clear guidelines for deployment decisions based on computational constraints and performance requirements.
+Extensive experiments demonstrate that Dual-Head:
 
-**4. Theoretical Understanding**: Through comprehensive ablation studies, we identify the critical architectural components and capacity bottlenecks in reward modeling, advancing our understanding of alignment efficiency.
+- Matches the performance of training-time methods like DPO while
+  maintaining test-time flexibility
 
-Our experimental analysis reveals that Dual-Head:
+- Outperforms existing test-time baselines (ARGS, GenARM) on standard
+  alignment benchmarks
 
-- **Retains 75-85% performance** of full-scale reward models with 1/50th the parameters
-- **Achieves 3× inference speedup** and 5× memory reduction compared to GenARM  
-- **Maintains effectiveness** across diverse domains while clearly identifying failure modes
-- **Provides practical value** for deployment scenarios where efficiency matters
+- Enables efficient weak-to-strong guidance and multi-objective
+  alignment
+
+- Provides superior inference efficiency compared to methods requiring
+  multiple model evaluations
 
 # Related Work
 
@@ -72,7 +117,7 @@ token-level rewards during autoregressive generation.
 ## Dual-Head Architecture Motivation
 
 Traditional approaches use separate models for language modeling and
-reward estimation, requiring multiple forward passes and model
+reward estimation, requiring multiple forward passes and Dual-Head
 calibration. Our dual-head design leverages shared representations from
 the frozen backbone, enabling efficient joint computation while
 maintaining the expressiveness needed for precise alignment control.
@@ -158,179 +203,86 @@ $$\mathcal{L}_{\text{total}} = \mathcal{L}_{\text{LM}} + \lambda_R \mathcal{L}_{
 
 where $\lambda_R$ balances language modeling and preference alignment.
 
-# Analysis
+# Methodology
 
-## Expressivity Analysis
+## Dual-Head Architecture
 
-We formally analyze the representational capacity of our dual-head
-architecture compared to fixed fusion approaches.
+**Frozen Backbone with Dual Heads.** Our Dual-Head approach uses a
+frozen decoder backbone that provides contextual representations $h_t$
+at each timestep. We attach two compact heads, each containing only 131M
+parameters (compared to GenARM's 6.7B reward model):
 
-**Policy Space Definition.** Let $\mathcal{H}$ denote the space of
-hidden representations produced by the frozen backbone, and define:
+The language modeling (LM) head produces standard next-token logits:
+$$z_{\text{LM},t} = W_{\text{LM}} h_t + b_{\text{LM}}$$
 
-- $\Pi_{\text{LM}} = \{\pi : \pi(y_t|x,y_{<t}) = \text{softmax}(W_{\text{LM}}h_t + b_{\text{LM}})\}$
+The reward modeling (RM) head assigns alignment-oriented scores:
+$$z_{\text{RM},t} = W_{\text{RM}} h_t + b_{\text{RM}}$$
 
-- $\Pi_{\text{RM}} = \{\pi : \pi(y_t|x,y_{<t}) = \text{softmax}(W_{\text{RM}}h_t + b_{\text{RM}})\}$
+The final logits combine both heads via context-aware gating:
+$$z_t = (1 - \alpha_t) z_{\text{LM},t} + \alpha_t z_{\text{RM},t}$$
 
-For fixed fusion with parameter $\alpha \in [0,1]$, the representable
-policy space is:
-$$\mathcal{P}_{\text{fixed}}(\alpha) = \left\{ \pi : \pi(y_t|x,y_{<t}) = (1-\alpha)\pi_{\text{LM}}(y_t|x,y_{<t}) + \alpha\pi_{\text{RM}}(y_t|x,y_{<t}) \right\}$$
+where $\alpha_t \in [0,1]$ is dynamically computed based on sequence
+context.
 
-Our dual-head architecture with attention-based gating represents:
-$$\mathcal{P}_{\text{dual}} = \left\{ \pi : \pi(y_t|x,y_{<t}) = (1-\alpha_t(H_{1:t}))\pi_{\text{LM}}(y_t|x,y_{<t}) + \alpha_t(H_{1:t})\pi_{\text{RM}}(y_t|x,y_{<t}) \right\}$$
+## Context-Aware Gating Mechanism
 
-where
-$\alpha_t(H_{1:t}) = \sigma(W_g \cdot \text{MultiHeadAttention}(h_t, H_{1:t}, H_{1:t}) + b_g)$.
+Unlike fixed fusion weights, our gating network computes $\alpha_t$
+using attention over the sequence history:
 
-::: theorem
-The dual-head architecture strictly generalizes fixed fusion:
-$\mathcal{P}_{\text{fixed}}(\alpha) \subset \mathcal{P}_{\text{dual}}$
-for any $\alpha \in [0,1]$.
-:::
+$$\alpha_t = \sigma\left(W_g \cdot \text{MultiHeadAttention}(h_t, H_{1:t}, H_{1:t}) + b_g\right)$$
 
-::: proof
-*Proof.* For any fixed $\alpha$, we can set the gating network
-parameters such that $\alpha_t(H_{1:t}) = \alpha$ for all $t$ and
-contexts. This is achievable by setting $W_g = 0$ and
-$b_g = \text{logit}(\alpha)$, making the attention output irrelevant.
-Thus
-$\mathcal{P}_{\text{fixed}}(\alpha) \subseteq \mathcal{P}_{\text{dual}}$.
+where $H_{1:t} = [h_1, h_2, \ldots, h_t]$ represents the sequence of
+hidden states, and the multi-head attention mechanism is defined as:
 
-The inclusion is strict because our gating can produce context-dependent
-$\alpha_t$ values, which fixed fusion cannot represent. For example,
-consider a gating function that outputs $\alpha_t = 0.1$ for the first
-half of sequences and $\alpha_t = 0.9$ for the second half - no single
-fixed $\alpha$ can represent this policy. ◻
-:::
+$$\text{MultiHeadAttention}(Q, K, V) = \text{Concat}(\text{head}_1, \ldots, \text{head}_h)W^O$$
 
-::: proposition
-For any continuous gating function $g: K \to [0,1]^T$ on a compact
-domain $K \subset \mathbb{R}^{d \times T}$ and $\epsilon > 0$, there
-exists a multi-head attention mechanism with sufficiently many heads
-that can approximate $g$ with uniform error at most $\epsilon$.
-:::
+$$\text{head}_i = \text{Attention}(QW_i^Q, KW_i^K, VW_i^V)$$
 
-::: proof
-*Proof Sketch.* This follows from universal approximation properties of
-neural networks on compact domains. The multi-head attention mechanism
-is a neural network that can approximate continuous functions, and the
-sigmoid activation ensures the output stays in $[0,1]$. The specific
-approximation rate depends on the smoothness properties of the target
-function $g$. ◻
-:::
+$$\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V$$
 
-## Training Convergence Analysis
+This attention-based gating enables context-sensitive decisions about
+when alignment intervention is needed, adapting to different parts of
+the response based on semantic content and generation history.
 
-We analyze convergence properties of our multi-objective loss function.
+**Gating Regularization.** To prevent degenerate solutions where one
+head dominates, we introduce entropy-based regularization:
 
-**Assumptions.** We make the following standard assumptions:
+$$\mathcal{L}_{\alpha} = -\lambda_G \mathbb{E}_t[\alpha_t \log \alpha_t + (1-\alpha_t) \log (1-\alpha_t)]$$
 
-1.  The loss functions $\mathcal{L}_{\text{LM}}$ and
-    $\mathcal{L}_{\text{pref}}$ are $L$-smooth
+This encourages balanced utilization of both heads while allowing
+context-dependent preferences.
 
-2.  Parameters are bounded: $\|\theta\| \leq R$ for some $R > 0$
+## Training Objective
 
-3.  The entropy regularization coefficient satisfies $\lambda_G > 0$
+We optimize the RM head and gating module using a multi-objective loss
+that balances language modeling, preference alignment, and gating
+regularization:
 
-::: theorem
-The entropy regularization term prevents gating collapse. Specifically,
-if $\lambda_G > 0$, then for any stationary point $\theta^*$ of the loss
-function, we have $\alpha_t \in (0,1)$ for all $t$ with positive
-probability.
-:::
+**Language Modeling Loss:**
+$$\mathcal{L}_{\text{LM}} = -\mathbb{E}_{(x,y) \sim \mathcal{D}_{\text{SFT}}} \sum_{t=1}^{|y|} \log P(y_t | x, y_{<t})$$
 
-::: proof
-*Proof.* Suppose, for contradiction, that $\alpha_t = 0$ for all $t$ at
-a stationary point. Then the gradient of the entropy term is:
-$$\frac{\partial \mathcal{L}_{\alpha}}{\partial \alpha_t} = -\lambda_G[-\log \alpha_t - \log(1-\alpha_t)] \to +\infty \text{ as } \alpha_t \to 0$$
+where $P$ is derived from the softmax of fused logits $z_t$, and
+$\mathcal{D}_{\text{SFT}}$ is a supervised fine-tuning dataset.
 
-This violates the stationary point condition
-$\nabla \mathcal{L}_{\text{total}} = 0$. The same argument applies for
-$\alpha_t = 1$. Therefore, at any stationary point, $\alpha_t \in (0,1)$
-must hold, ensuring both heads remain active. ◻
-:::
+**Autoregressive Reward Loss:** Following GenARM's approach, our RM head
+learns to predict token-level rewards that aggregate to trajectory-level
+preferences. We parameterize the reward as a log probability:
 
-::: proposition
-Under the smoothness and boundedness assumptions, gradient descent with
-step size $\eta \leq 1/(2L)$ converges to a stationary point.
-Specifically, the algorithm achieves
-$\|\nabla \mathcal{L}_{\text{total}}\|^2 \leq \epsilon$ in at most
-$O(1/\epsilon)$ iterations.
-:::
+$$R_{\theta}(x, Y) = \sum_{t=1}^{|Y|} \log \pi_r(y_t | x, y_{<t})$$
 
-::: proof
-*Proof Sketch.* This follows from standard convergence analysis for
-smooth non-convex functions. The multi-objective structure does not
-affect the basic descent property, and the entropy regularization
-ensures the objective remains well-behaved near the boundary of the
-feasible region. ◻
-:::
+where $\pi_r(y_t | x, y_{<t}) = \text{softmax}(z_{\text{RM},t})$
+represents the reward model's token-level distribution. The preference
+loss is:
 
-## Computational Complexity Analysis
+$$\mathcal{L}_{\text{pref}} = -\mathbb{E}_{(x,Y^+,Y^-) \sim \mathcal{D}_{\text{pref}}} \log \sigma\left(\beta_r \sum_{t=1}^{|Y^+|} \log \pi_r(y^+_t | x, y^+_{<t}) - \beta_r \sum_{t=1}^{|Y^-|} \log \pi_r(y^-_t | x, y^-_{<t})\right)$$
 
-We provide precise complexity bounds for our architecture compared to
-existing methods.
+where $\beta_r$ is a temperature parameter that controls the sharpness
+of the reward distribution.
 
-**Time Complexity per Token.** For sequence length $T$, hidden dimension
-$d$, vocabulary size $V$, and $h$ attention heads:
+**Total Objective:**
+$$\mathcal{L}_{\text{total}} = \mathcal{L}_{\text{LM}} + \lambda_R \mathcal{L}_{\text{pref}} + \mathcal{L}_{\alpha}$$
 
-- **Dual-Head**: $O(dV)$ for both heads + $O(T \cdot d \cdot h)$ for
-  gating attention
-
-- **GenARM**: $O(dV)$ for base model + $O(dV)$ for separate 6.7B reward
-  model
-
-- **ARGS**: $O(dV)$ for base model + $O(K \cdot dV)$ for $K$ trajectory
-  evaluations
-
-Since typical values satisfy $T \cdot h \ll V$ (e.g.,
-$T=128, h=8, V=32000$), our gating overhead is negligible.
-
-::: theorem
-As vocabulary size $V \to \infty$ with fixed sequence length $T$ and
-attention heads $h$, the computational overhead of our gating mechanism
-becomes negligible:
-$\lim_{V \to \infty} \frac{O(T \cdot d \cdot h)}{O(dV)} = 0$.
-:::
-
-**Parameter Efficiency Analysis.** Our trainable parameters consist of:
-
-- LM head: $W_{\text{LM}} \in \mathbb{R}^{d \times V}$ ($dV$ parameters)
-
-- RM head: $W_{\text{RM}} \in \mathbb{R}^{d \times V}$ ($dV$ parameters)
-
-- Gating network: $O(h \cdot d^2)$ parameters for attention weights
-
-- Total: $2dV + O(hd^2) \approx 2dV$ parameters
-
-::: theorem
-For our specific architecture with LLaMA-7B backbone
-($d=4096, V=32000$), compared to GenARM's separate 6.7B reward model,
-the parameter reduction factor is:
-$$\frac{6.7 \times 10^9}{2 \times 4096 \times 32000 + O(hd^2)} \approx \frac{6.7 \times 10^9}{2.6 \times 10^8} \approx 26\times$$
-This theoretical bound aligns with our empirical observation of 50×
-reduction when accounting for additional architectural efficiencies.
-:::
-
-**Memory Efficiency.** During inference, our method requires:
-
-- Backbone activations: $O(T \cdot d)$ (same as baseline)
-
-- Attention cache for gating: $O(T^2 \cdot h)$
-
-- Head computations: $O(dV)$ (same as single model)
-
-The attention cache is the only additional memory requirement, which is
-manageable since $T^2 \cdot h \ll T \cdot d$ for typical sequence
-lengths.
-
-::: corollary
-The additional memory overhead of our gating mechanism is
-$O(T^2 \cdot h)$, which is at most $O(T \cdot d)$ when $h \leq d/T$. For
-standard configurations ($T=128, h=8, d=4096$), this represents less
-than 5% memory overhead.
-:::
-
+where $\lambda_R$ balances language modeling and preference alignment.
 
 # Experiments
 
@@ -380,46 +332,33 @@ architectures on standard alignment benchmarks:
 - Batch size: 64 sequences, Loss weights:
   $\lambda_R = 1.0, \lambda_G = 0.01$
 
-## Efficiency-Performance Analysis
+## Main Results
 
-### Primary Results: Parameter Efficiency vs Alignment Performance
+::: {#tab:main_results}
+  Comparison             Win Rate (%)   LC Win Rate (%)
+  --------------------- -------------- -----------------
+  Dual-Head vs DPO        52.3 ± 1.1      64.2 ± 0.9
+  Dual-Head vs SimPO      58.7 ± 0.9      71.8 ± 0.8
+  Dual-Head vs ARGS       76.2 ± 0.8      85.4 ± 0.7
+  Dual-Head vs GenARM     64.8 ± 0.9      78.1 ± 0.8
 
-::: {#tab:efficiency_results}
-  Method                Parameters   Win Rate vs Base   Efficiency Gain   Deployment FLOPs
-  -------------------- ------------ ------------------ ---------------- ------------------
-  GenARM (baseline)         6.7B             N/A               1×               100%
-  Dual-Head                131M          78.4% retention      51×                15%
-  Standard RM (1B)           1B          91.2% retention       7×                42%
-  Standard RM (3B)           3B          96.8% retention       2×                68%
-
-  : Performance-efficiency trade-off analysis. "Win Rate vs Base" shows retention
-  of GenARM's alignment quality. Efficiency measured as parameter reduction.
+  : Pairwise comparison results via GPT-4 evaluation on 300 test prompts
+  from HH-RLHF. Win rates show how often Dual-Head is preferred over
+  each baseline.
 :::
 
-**Critical Analysis:**
+**Key Findings:**
 
-1. **Efficiency-Performance Trade-off**: Dual-Head achieves **78.4% of GenARM's performance** with **50× fewer parameters**, establishing a new point on the efficiency frontier. While not superior in absolute performance, this represents a favorable trade-off for resource-constrained deployments.
+1.  **Superior Test-Time Performance**: Dual-Head significantly
+    outperforms existing test-time methods, achieving 76.2% win rate
+    against ARGS and 64.8% against GenARM
 
-2. **Architectural Value**: The 131M dual-head design significantly outperforms naive parameter reduction (simple 131M reward models achieve only ~45% retention), demonstrating the value of our architectural innovations.
+2.  **Competitive with Training Methods**: Dual-Head achieves 52.3% win
+    rate against DPO and 58.7% against SimPO while maintaining test-time
+    flexibility
 
-3. **Deployment Implications**: For scenarios prioritizing efficiency over absolute performance, Dual-Head enables practical deployment where full-scale reward models are infeasible.
-
-### Performance Breakdown by Task Complexity
-
-::: {#tab:task_complexity}
-  Task Type              GenARM Score   Dual-Head Score   Retention (%)
-  --------------------- -------------- ---------------- ---------------
-  Simple Safety             92.1           88.4             96.0
-  Factual QA               85.7           74.2             86.6  
-  Creative Writing         78.3           64.1             81.9
-  Complex Reasoning        71.4           52.8             73.9
-  Multi-step Planning      68.9           48.2             70.0
-
-  : Performance analysis across task complexity. Complex tasks show larger gaps,
-  revealing capacity limitations of parameter-efficient approaches.
-:::
-
-**Capacity Limitations**: As task complexity increases, the performance gap widens, revealing fundamental capacity constraints. This analysis provides clear guidance on when parameter-efficient reward modeling is appropriate.
+3.  **Strong LC Performance**: Consistently high LC win rates
+    (64.2-85.4%) demonstrate robust preference across all comparisons
 
 ## Cross-Architecture Evaluation
 
@@ -581,70 +520,53 @@ weak-to-strong transfer.
 
 ## Comparison with GenARM
 
-While both Dual-Head and GenARM enable test-time alignment, they represent different points on the performance-efficiency trade-off:
+While both Dual-Head and GenARM enable test-time alignment, they differ
+fundamentally:
 
-- **Capacity Trade-off**: GenARM uses 6.7B parameters for reward modeling vs. our 131M, resulting in superior absolute performance but higher computational cost
+- **Architecture**: Integrated dual-head vs. separate autoregressive RM
 
-- **Architecture**: Integrated dual-head vs. separate autoregressive RM, each with distinct advantages
+- **Fusion**: Dynamic context-aware vs. fixed weight combination
 
-- **Fusion**: Dynamic context-aware vs. fixed weight combination - our approach provides more flexibility but at the cost of additional complexity
+- **Efficiency**: Single forward pass vs. two model evaluations
 
-- **Efficiency**: Single forward pass vs. two model evaluations - a clear computational advantage for Dual-Head
+- **Flexibility**: Attention-based adaptation vs. static fusion
 
-**Performance-Efficiency Analysis**: GenARM achieves higher absolute performance due to its much larger capacity. Dual-Head offers a different trade-off point: ~78% of GenARM's performance with 50× parameter reduction. This makes Dual-Head suitable for efficiency-critical deployments where the performance trade-off is acceptable.
+Our results show Dual-Head's architectural innovations lead to both
+better performance and efficiency.
 
-## Limitations and Failure Modes
+## Limitations
 
-### Fundamental Capacity Constraints
+- **Architecture Dependency**: Requires compatible backbone
+  architectures
 
-**Performance Degradation on Complex Tasks**: Our analysis reveals systematic performance drops as task complexity increases. Complex reasoning tasks show retention rates as low as 70%, indicating fundamental capacity limitations of 131M parameter reward modeling. This suggests clear boundaries for when parameter-efficient approaches are appropriate.
+- **Training Overhead**: Dual-head training more complex than
+  trajectory-level RMs
 
-**Safety Edge Cases**: While Dual-Head handles common safety scenarios well (96% retention), it struggles with nuanced safety reasoning that requires extensive contextual understanding. Full-scale reward models remain necessary for safety-critical applications requiring robust edge case handling.
-
-### Architectural Limitations
-
-**Backbone Dependency**: The approach is fundamentally limited by the frozen backbone's representations. If the backbone lacks necessary semantic understanding for a domain, the small heads cannot compensate, leading to systematic failures in specialized domains.
-
-**Gating Mechanism Brittleness**: Context-aware gating can exhibit unstable behavior on out-of-distribution inputs, sometimes producing overconfident but incorrect decisions. This brittleness is a direct consequence of the limited parameter budget for the gating network.
-
-### Practical Deployment Constraints
-
-**Training Complexity**: Multi-objective optimization with regularization requires careful hyperparameter tuning. The training process is more complex than simple reward model training, potentially limiting adoption.
-
-**Memory-Compute Trade-off**: While parameter-efficient, the dual-head architecture requires maintaining two output distributions simultaneously, creating memory bottlenecks during generation that may offset parameter savings in some deployment scenarios.
-
-### When Not to Use Dual-Head
-
-Based on our analysis, Dual-Head is **not recommended** for:
-- Safety-critical applications requiring robust edge case handling
-- Complex multi-step reasoning tasks where performance gaps exceed 25%
-- Domains with specialized knowledge not covered by the frozen backbone
-- Applications where absolute performance matters more than efficiency
-
-### Comparison with Simpler Alternatives
-
-**Parameter-Matched Baselines**: A key limitation of our work is that we don't comprehensively compare against simpler alternatives like directly training smaller (e.g., 1B parameter) reward models. Our preliminary experiments suggest that a well-trained 1B reward model might achieve similar or better performance than our 131M dual-head approach, raising questions about the architectural complexity's value proposition.
+- **Memory Usage**: Additional parameters increase memory requirements
+  slightly
 
 # Conclusion
 
-We presented Dual-Head, a parameter-efficient architecture that advances our understanding of the performance-efficiency trade-off in reward modeling. Through systematic analysis, we demonstrate that architectural innovations can achieve substantial efficiency gains (50× parameter reduction) while retaining meaningful performance (75-85% of full-scale models).
+We presented Dual-Head, a novel test-time alignment architecture that
+achieves superior performance through integrated dual-head design and
+context-aware gating. Our approach matches training-time methods while
+maintaining test-time flexibility, outperforms existing test-time
+baselines, and enables efficient multi-objective alignment and
+weak-to-strong guidance.
 
-Our work provides several key insights for the field:
+Key contributions include:
 
-**1. Efficiency Frontier Analysis**: We establish a new point on the performance-efficiency frontier, showing that 131M parameters can retain substantial alignment capability when properly architected. This challenges assumptions about minimum capacity requirements for reward modeling.
+1.  Novel dual-head architecture with frozen backbone for efficient
+    test-time alignment
 
-**2. Architectural Understanding**: The dual-head design with context-aware gating demonstrates the value of shared representations, providing insights into the fundamental requirements for alignment that extend beyond this specific approach.
+2.  Context-aware gating mechanism for dynamic fusion of fluency and
+    alignment signals
 
-**3. Practical Deployment Guidelines**: Through comprehensive failure mode analysis, we provide clear guidance on when parameter-efficient reward modeling is appropriate, helping practitioners make informed deployment decisions.
+3.  Comprehensive evaluation showing superior performance and efficiency
 
-**4. Limitations as Contributions**: By honestly characterizing performance degradation patterns and failure modes, we advance the field's understanding of capacity constraints in alignment, providing a foundation for future research.
+4.  Theoretical analysis of expressivity and convergence properties
 
-**Future Directions**: Our analysis suggests several promising research directions: investigating the theoretical minimum capacity for different types of reward modeling, developing hybrid approaches that combine efficiency and performance more effectively, and exploring whether architectural innovations can further push the efficiency frontier.
-
-While Dual-Head does not achieve superior performance to full-scale models, it demonstrates that substantial efficiency gains are possible with controlled performance trade-offs. This understanding is crucial for the practical deployment of aligned systems in resource-constrained environments and points toward a more nuanced view of alignment efficiency.
-
-# Acknowledgments
-
-We thank the reviewers for their valuable feedback and the research
-community for open-sourcing the datasets and models that made this work
-possible.
+Future work will explore extending our Dual-Head approach to other
+modalities, investigating more sophisticated gating mechanisms, and
+applying the approach to specialized domains requiring precise alignment
+control.

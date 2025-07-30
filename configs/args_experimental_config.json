@@ -1,0 +1,26 @@
+{
+    "rm_weight": 1.0,
+    "topk": 10,
+    "mode": "greedy",
+    "sample_temp": null,
+    "max_new_tokens": 128,
+    "models": {
+        "llm_path": "argsearch/llama-7b-sft-float32",
+        "rm_path": "argsearch/llama-7b-rm-float32"
+    },
+    "generation_config": {
+        "temperature": null,
+        "top_p": 1.0,
+        "top_k": 10,
+        "do_sample": false
+    },
+    "evaluation": {
+        "dataset": "Anthropic/hh-rlhf",
+        "max_samples": 300,
+        "batch_size": 1
+    },
+    "hardware": {
+        "llm_gpu": "cuda:0",
+        "rm_gpu": "cuda:1"
+    }
+}

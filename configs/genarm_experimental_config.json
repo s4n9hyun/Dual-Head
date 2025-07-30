@@ -1,0 +1,24 @@
+{
+    "model_config": {
+        "base_model": "argsearch/llama-7b-sft-float32",
+        "autoregressive_rm": "/home/ibel/research/GenARM/checkpoints/HH/arm/args-llama-sft-7b-arm-HH-epoch_1-beta_0.05-lr_5e-4-bs_32/final_checkpoint",
+        "prompt_template": "lambda system_prompt, input_string: f'{input_string}'"
+    },
+    "generation_config": {
+        "alpha": 1.0,
+        "temperature": 0.5,
+        "max_new_tokens": 128,
+        "top_p": 1.0,
+        "top_k": 0,
+        "do_speculation": false
+    },
+    "evaluation": {
+        "dataset": "Anthropic/hh-rlhf",
+        "max_samples": 300,
+        "batch_size": 4
+    },
+    "hardware": {
+        "dtype": "torch.bfloat16",
+        "device": "cuda:0"
+    }
+}

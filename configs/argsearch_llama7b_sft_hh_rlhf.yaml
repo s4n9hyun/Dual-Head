@@ -1,8 +1,8 @@
-# Configuration for Dual-Head training on LLaMA-2-7B with HH-RLHF
-# This config reproduces the paper's main experimental setup
+# Configuration for Dual-Head training on argsearch/llama-7b-sft-float32 with HH-RLHF
+# This config uses the same base model as ARGS for direct comparison
 
 model:
-  backbone_name_or_path: "meta-llama/Llama-2-7b-hf"
+  backbone_name_or_path: "argsearch/llama-7b-sft-float32"
   freeze_backbone: true
   
   # Head configuration
@@ -29,11 +29,11 @@ training:
   lambda_g: 0.01     # Gating regularization weight  
   beta_r: 1.0        # Reward model temperature
   
-  # Standard training parameters
+  # Standard training parameters (paper specification: 64 sequences = 4 per device × 16 accumulation steps)
   num_train_epochs: 3
   per_device_train_batch_size: 4
   per_device_eval_batch_size: 8
-  gradient_accumulation_steps: 4
+  gradient_accumulation_steps: 16  # 4 × 16 = 64 total batch size
   learning_rate: 5e-5
   weight_decay: 0.01
   warmup_ratio: 0.1
@@ -63,7 +63,7 @@ data:
 
 system:
   seed: 42
-  output_dir: "./outputs/dual_head_llama2_7b_hh_rlhf"
+  output_dir: "./outputs/dual_head_argsearch_llama7b_sft_hh_rlhf"
   report_to: "wandb"
   project_name: "dual-head-iclr2026"
-  run_name: "llama2_7b_hh_rlhf_main"
+  run_name: "argsearch_llama7b_sft_hh_rlhf_main"

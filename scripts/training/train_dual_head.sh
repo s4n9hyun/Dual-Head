@@ -6,9 +6,9 @@
 set -e
 
 # Default values
-MODEL_NAME="meta-llama/Llama-2-7b-hf"
+MODEL_NAME="argsearch/llama-7b-sft-float32"
 DATASET_NAME="Anthropic/hh-rlhf"
-OUTPUT_DIR="./outputs/dual_head_llama2_7b"
+OUTPUT_DIR="./outputs/dual_head_argsearch_llama7b_sft"
 NUM_EPOCHS=3
 BATCH_SIZE=4
 LEARNING_RATE=5e-5
