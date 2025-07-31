@@ -99,7 +99,8 @@ class DualHeadTrainer(Trainer):
         self,
         model: DualHeadModel,
         inputs: Dict[str, torch.Tensor],
-        return_outputs: bool = False
+        return_outputs: bool = False,
+        num_items_in_batch=None
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, Dict[str, torch.Tensor]]]:
         """
         Compute loss for Dual-Head training.
@@ -177,8 +178,14 @@ class DualHeadTrainer(Trainer):
         )
         
         # Get dual head outputs
-        chosen_head_outputs = model.dual_heads(chosen_outputs.hidden_states, return_dict=True)
-        rejected_head_outputs = model.dual_heads(rejected_outputs.hidden_states, return_dict=True)
+        dual_heads = model.dual_heads
+        
+        # Ensure hidden states have correct dtype
+        chosen_hidden = chosen_outputs.hidden_states.to(dtype=torch.bfloat16)
+        rejected_hidden = rejected_outputs.hidden_states.to(dtype=torch.bfloat16)
+        
+        chosen_head_outputs = dual_heads(chosen_hidden, return_dict=True)
+        rejected_head_outputs = dual_heads(rejected_hidden, return_dict=True)
         
         # Prepare model outputs for loss computation
         model_outputs = {

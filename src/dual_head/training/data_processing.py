@@ -130,6 +130,46 @@ class DualHeadDataCollator:
         return torch.stack(padded)
 
 
+def _parse_hh_rlhf_format(text: str) -> List[Dict[str, str]]:
+    """Parse HH-RLHF format string into structured messages.
+    
+    HH-RLHF format example:
+    "Human: What is the capital of France?\\n\\nAssistant: The capital of France is Paris."
+    
+    Returns:
+        List of message dictionaries with 'role' and 'content' keys
+    """
+    messages = []
+    
+    # Split by "Human:" and "Assistant:" markers
+    parts = text.strip().split('\\n\\n')
+    
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+            
+        if part.startswith('Human:'):
+            content = part[6:].strip()  # Remove "Human:" prefix
+            if content:
+                messages.append({"role": "user", "content": content})
+        elif part.startswith('Assistant:'):
+            content = part[10:].strip()  # Remove "Assistant:" prefix
+            if content:
+                messages.append({"role": "assistant", "content": content})
+        # Handle alternative formats
+        elif part.startswith('H:'):
+            content = part[2:].strip()  # Remove "H:" prefix
+            if content:
+                messages.append({"role": "user", "content": content})
+        elif part.startswith('A:'):
+            content = part[2:].strip()  # Remove "A:" prefix
+            if content:
+                messages.append({"role": "assistant", "content": content})
+    
+    return messages
+
+
 def encode_with_messages_format(
     example: Dict[str, Any],
     tokenizer: PreTrainedTokenizer,
@@ -140,10 +180,12 @@ def encode_with_messages_format(
     Encode examples with messages format (similar to GenARM).
     
     This function handles conversation-style data where each example has
-    'chosen' and 'rejected' fields containing lists of messages.
+    'chosen' and 'rejected' fields containing either:
+    - Lists of messages with 'role' and 'content' keys
+    - Simple strings in HH-RLHF format ("H: ... A: ...")
     
     Args:
-        example: Dictionary with 'chosen' and 'rejected' message lists
+        example: Dictionary with 'chosen' and 'rejected' message lists or strings
         tokenizer: Tokenizer to use for encoding
         max_seq_length: Maximum sequence length
         add_bos: Whether to add BOS token
@@ -151,8 +193,20 @@ def encode_with_messages_format(
     Returns:
         Dictionary with encoded chosen/rejected sequences
     """
-    chosen_messages = example["chosen"]
-    rejected_messages = example["rejected"]
+    chosen_data = example["chosen"]
+    rejected_data = example["rejected"]
+    
+    # Handle different input formats
+    if isinstance(chosen_data, str) and isinstance(rejected_data, str):
+        # HH-RLHF format - convert strings to message format
+        chosen_messages = _parse_hh_rlhf_format(chosen_data)
+        rejected_messages = _parse_hh_rlhf_format(rejected_data)
+    elif isinstance(chosen_data, list) and isinstance(rejected_data, list):
+        # Already in message format
+        chosen_messages = chosen_data
+        rejected_messages = rejected_data
+    else:
+        raise ValueError(f"Unsupported data format. Expected strings or lists, got {type(chosen_data)} and {type(rejected_data)}")
     
     if len(chosen_messages) == 0 or len(rejected_messages) == 0:
         raise ValueError("Both chosen and rejected messages must be non-empty")

@@ -75,18 +75,35 @@ class DualHeadLoss(nn.Module):
         losses = {}
         metrics = {}
         
+        # Detect if this is preference data
+        is_preference_data = 'chosen_input_ids' in batch and 'rejected_input_ids' in batch
+        
         # 1. Language Modeling Loss
-        lm_loss = self.compute_language_modeling_loss(
-            logits=model_outputs['fused_logits'],
-            labels=batch['labels'],
-            attention_mask=batch.get('attention_mask')
-        )
+        if is_preference_data:
+            # For preference data, use chosen labels for LM loss
+            lm_loss = self.compute_language_modeling_loss(
+                logits=model_outputs['fused_logits'],
+                labels=batch['chosen_labels'],
+                attention_mask=batch.get('chosen_attention_mask')
+            )
+        else:
+            # For SFT data, use regular labels
+            lm_loss = self.compute_language_modeling_loss(
+                logits=model_outputs['fused_logits'],
+                labels=batch['labels'],
+                attention_mask=batch.get('attention_mask')
+            )
         losses['lm_loss'] = lm_loss
         
         # 2. Gating Regularization Loss
+        if is_preference_data:
+            gating_attention_mask = batch.get('chosen_attention_mask')
+        else:
+            gating_attention_mask = batch.get('attention_mask')
+        
         gating_loss = self.compute_gating_regularization_loss(
             gating_coefficients=model_outputs['gating_coefficients'],
-            attention_mask=batch.get('attention_mask')
+            attention_mask=gating_attention_mask
         )
         losses['gating_loss'] = gating_loss
         

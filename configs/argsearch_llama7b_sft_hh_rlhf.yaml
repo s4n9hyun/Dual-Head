@@ -29,20 +29,20 @@ training:
   lambda_g: 0.01     # Gating regularization weight  
   beta_r: 1.0        # Reward model temperature
   
-  # Standard training parameters (paper specification: 64 sequences = 4 per device × 16 accumulation steps)
+  # Optimized for H100 94GB GPU (paper specification: 64 sequences total)
   num_train_epochs: 3
-  per_device_train_batch_size: 4
-  per_device_eval_batch_size: 8
-  gradient_accumulation_steps: 16  # 4 × 16 = 64 total batch size
+  per_device_train_batch_size: 8   # Optimal batch size for H100
+  per_device_eval_batch_size: 16   # Evaluation batch size
+  gradient_accumulation_steps: 8   # 8 × 8 = 64 total batch size
   learning_rate: 5e-5
   weight_decay: 0.01
   warmup_ratio: 0.1
   
-  # Optimization
+  # Optimization for H100 GPU
   fp16: false
   bf16: true
-  gradient_checkpointing: true
-  dataloader_num_workers: 4
+  dataloader_num_workers: 8  # Optimal workers for data loading
+  dataloader_pin_memory: true  # Pin memory for faster GPU transfer
   
   # Logging and saving
   logging_steps: 10
@@ -64,6 +64,6 @@ data:
 system:
   seed: 42
   output_dir: "./outputs/dual_head_argsearch_llama7b_sft_hh_rlhf"
-  report_to: "wandb"
+  report_to: ""
   project_name: "dual-head-iclr2026"
   run_name: "argsearch_llama7b_sft_hh_rlhf_main"

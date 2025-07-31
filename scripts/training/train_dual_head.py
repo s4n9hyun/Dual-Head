@@ -287,6 +287,29 @@ def parse_args():
         default=1000,
         help="Save checkpoint every X updates steps"
     )
+    parser.add_argument(
+        "--save_strategy",
+        type=str,
+        default="steps",
+        choices=["no", "steps", "epoch"],
+        help="The checkpoint save strategy to use"
+    )
+    parser.add_argument(
+        "--load_best_model_at_end",
+        action="store_true",
+        help="Whether to load the best model at the end of training"
+    )
+    parser.add_argument(
+        "--metric_for_best_model",
+        type=str,
+        default="eval_loss",
+        help="The metric to use to compare two different models"
+    )
+    parser.add_argument(
+        "--greater_is_better",
+        action="store_true",
+        help="Whether the metric_for_best_model should be maximized or not"
+    )
     
     # Monitoring arguments
     parser.add_argument(
@@ -334,7 +357,7 @@ def parse_args():
     parser.add_argument(
         "--dataloader_num_workers",
         type=int,
-        default=0,
+        default=8,
         help="Number of subprocesses to use for data loading"
     )
     parser.add_argument(
@@ -368,7 +391,7 @@ def setup_logging(training_args):
 
 def load_datasets(args):
     """Load and prepare datasets for training."""
-    logger.info("Loading datasets...")
+    print("Loading datasets...")
     
     # Load preference dataset
     if args.dataset_name:
@@ -391,7 +414,7 @@ def load_datasets(args):
     # Load SFT dataset if specified
     sft_dataset = None
     if args.sft_dataset_name:
-        logger.info(f"Loading SFT dataset: {args.sft_dataset_name}")
+        print(f"Loading SFT dataset: {args.sft_dataset_name}")
         sft_dataset = load_dataset(args.sft_dataset_name, split="train")
     
     # Apply dataset size limits
@@ -401,16 +424,16 @@ def load_datasets(args):
             sft_samples = int(args.max_train_samples * args.sft_ratio)
             sft_dataset = sft_dataset.select(range(min(sft_samples, len(sft_dataset))))
     
-    logger.info(f"Preference dataset size: {len(preference_dataset)}")
+    print(f"Preference dataset size: {len(preference_dataset)}")
     if sft_dataset:
-        logger.info(f"SFT dataset size: {len(sft_dataset)}")
+        print(f"SFT dataset size: {len(sft_dataset)}")
     
     return preference_dataset, sft_dataset
 
 
 def prepare_datasets(preference_dataset, sft_dataset, tokenizer, args):
     """Prepare datasets for training."""
-    logger.info("Preparing datasets...")
+    print("Preparing datasets...")
     
     # Prepare preference dataset
     processed_preference_dataset = prepare_preference_dataset(
@@ -438,7 +461,7 @@ def prepare_datasets(preference_dataset, sft_dataset, tokenizer, args):
             processed_preference_dataset,
             sft_ratio=args.sft_ratio
         )
-        logger.info(f"Mixed dataset size: {len(train_dataset)}")
+        print(f"Mixed dataset size: {len(train_dataset)}")
     else:
         train_dataset = processed_preference_dataset
     
@@ -451,7 +474,7 @@ def prepare_datasets(preference_dataset, sft_dataset, tokenizer, args):
 
 def create_model_and_tokenizer(args):
     """Create model and tokenizer."""
-    logger.info("Loading tokenizer and model...")
+    print("Loading tokenizer and model...")
     
     # Load tokenizer
     tokenizer = AutoTokenizer.from_pretrained(
@@ -479,9 +502,9 @@ def create_model_and_tokenizer(args):
     
     # Print parameter statistics
     param_stats = model.get_parameter_statistics()
-    logger.info("Model parameter statistics:")
+    print("Model parameter statistics:")
     for key, value in param_stats.items():
-        logger.info(f"  {key}: {value}")
+        print(f"  {key}: {value}")
     
     return model, tokenizer
 
@@ -506,26 +529,28 @@ def setup_training_arguments(args):
         preference_data_ratio=args.preference_data_ratio,
         
         # Evaluation arguments
-        evaluation_strategy=args.evaluation_strategy,
+        eval_strategy=args.evaluation_strategy,
         eval_steps=args.eval_steps,
         logging_steps=args.logging_steps,
         save_steps=args.save_steps,
+        save_strategy=args.save_strategy,
         save_total_limit=args.save_total_limit,
+        load_best_model_at_end=args.load_best_model_at_end,
+        metric_for_best_model=args.metric_for_best_model,
+        greater_is_better=args.greater_is_better,
         
         # System arguments
         fp16=args.fp16,
         bf16=args.bf16,
         dataloader_num_workers=args.dataloader_num_workers,
+        dataloader_pin_memory=True,
         
         # Monitoring arguments
-        report_to=args.report_to.split(",") if args.report_to else [],
+        report_to=args.report_to.split(",") if args.report_to and args.report_to.strip() else [],
         run_name=args.wandb_run_name,
         
         # Other arguments
         remove_unused_columns=False,  # Important for dual-head training
-        load_best_model_at_end=True,
-        metric_for_best_model="eval_loss",
-        greater_is_better=False,
         seed=args.seed,
     )
     
@@ -534,26 +559,31 @@ def setup_training_arguments(args):
 
 def setup_wandb(args, training_args):
     """Setup Weights & Biases logging."""
-    if "wandb" in training_args.report_to:
-        import wandb
-        
-        wandb.init(
-            project=args.wandb_project,
-            entity=args.wandb_entity,
-            name=args.wandb_run_name,
-            config={
-                "model_name": args.model_name_or_path,
-                "dataset_name": args.dataset_name,
-                "max_seq_length": args.max_seq_length,
-                "learning_rate": args.learning_rate,
-                "batch_size": args.per_device_train_batch_size,
-                "lambda_r": args.lambda_r,
-                "lambda_g": args.lambda_g,
-                "beta_r": args.beta_r,
-                "freeze_backbone": args.freeze_backbone,
-                "gating_num_heads": args.gating_num_heads,
-            }
-        )
+    if hasattr(training_args, 'report_to') and training_args.report_to and "wandb" in training_args.report_to:
+        try:
+            import wandb
+            
+            wandb.init(
+                project=args.wandb_project,
+                entity=args.wandb_entity,
+                name=args.wandb_run_name,
+                config={
+                    "model_name": args.model_name_or_path,
+                    "dataset_name": args.dataset_name,
+                    "max_seq_length": args.max_seq_length,
+                    "learning_rate": args.learning_rate,
+                    "batch_size": args.per_device_train_batch_size,
+                    "lambda_r": args.lambda_r,
+                    "lambda_g": args.lambda_g,
+                    "beta_r": args.beta_r,
+                    "freeze_backbone": args.freeze_backbone,
+                    "gating_num_heads": args.gating_num_heads,
+                }
+            )
+        except Exception as e:
+            print(f"Warning: Failed to initialize wandb: {e}")
+    else:
+        print("Wandb logging disabled")
 
 
 def main():

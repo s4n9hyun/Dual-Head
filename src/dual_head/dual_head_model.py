@@ -17,16 +17,28 @@ from transformers import (
     AutoModelForCausalLM,
     AutoConfig,
     PreTrainedModel,
+    PretrainedConfig,
     GenerationConfig
 )
 from transformers.models.llama.modeling_llama import LlamaForCausalLM
 from transformers.modeling_outputs import CausalLMOutputWithPast
+from dataclasses import dataclass
 
 from .heads import DualHead
 from .gating_mechanism import ContextAwareGating, AdaptiveFusion
 
 
-class DualHeadConfig:
+@dataclass
+class DualHeadOutputWithPast(CausalLMOutputWithPast):
+    """
+    Output class for Dual-Head model with additional fields.
+    """
+    gating_coefficients: Optional[torch.Tensor] = None
+    lm_logits: Optional[torch.Tensor] = None
+    rm_logits: Optional[torch.Tensor] = None
+
+
+class DualHeadConfig(PretrainedConfig):
     """Configuration class for Dual-Head model."""
     
     def __init__(
@@ -60,6 +72,8 @@ class DualHeadConfig:
         
         **kwargs
     ):
+        super().__init__(**kwargs)
+        
         self.backbone_name_or_path = backbone_name_or_path
         self.freeze_backbone = freeze_backbone
         
@@ -112,7 +126,10 @@ class DualHeadModel(PreTrainedModel):
         self.hidden_size = backbone_config.hidden_size
         self.vocab_size = backbone_config.vocab_size
         
-        # Initialize dual heads
+        # Get backbone dtype
+        backbone_dtype = next(self.backbone.parameters()).dtype
+        
+        # Initialize dual heads with same dtype as backbone
         self.dual_heads = DualHead(
             hidden_size=self.hidden_size,
             vocab_size=self.vocab_size,
@@ -121,6 +138,7 @@ class DualHeadModel(PreTrainedModel):
             rm_intermediate_size=config.rm_intermediate_size,
             rm_activation=config.rm_activation,
             rm_dropout=config.rm_dropout,
+            dtype=backbone_dtype,
         )
         
         # Initialize context-aware gating
@@ -132,6 +150,7 @@ class DualHeadModel(PreTrainedModel):
             dropout=config.gating_dropout,
             bias=True,
             use_layer_norm=config.gating_use_layer_norm,
+            dtype=backbone_dtype,
         )
         
         # Initialize adaptive fusion
@@ -154,6 +173,7 @@ class DualHeadModel(PreTrainedModel):
             self.config.backbone_name_or_path,
             torch_dtype=torch.bfloat16,
             device_map=None,  # We handle device placement manually
+            low_cpu_mem_usage=True,  # Optimize memory usage during loading
         )
         
         # Freeze backbone parameters if specified
@@ -215,7 +235,7 @@ class DualHeadModel(PreTrainedModel):
         output_attentions: bool = False,
         return_dict: bool = True,
         **kwargs
-    ) -> Union[Tuple, CausalLMOutputWithPast]:
+    ) -> Union[Tuple, DualHeadOutputWithPast]:
         """
         Forward pass through the Dual-Head model.
         
@@ -282,12 +302,15 @@ class DualHeadModel(PreTrainedModel):
                 output += (attention_weights,)
             return ((loss,) + output) if loss is not None else output
         
-        return CausalLMOutputWithPast(
+        return DualHeadOutputWithPast(
             loss=loss,
             logits=fused_logits,
             past_key_values=past_key_values,
-            hidden_states=hidden_states if output_attentions else None,
+            hidden_states=hidden_states,
             attentions=attention_weights if output_attentions else None,
+            gating_coefficients=gating_coefficients,
+            lm_logits=lm_logits,
+            rm_logits=rm_logits,
         )
     
     def compute_loss(

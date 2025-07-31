@@ -98,8 +98,9 @@ class MultiHeadAttention(nn.Module):
         K = K.transpose(1, 2)
         V = V.transpose(1, 2)
         
-        # Compute attention scores
-        attention_scores = torch.matmul(Q, K.transpose(-2, -1)) * self.scale
+        # Compute attention scores with dtype consistency
+        scale = torch.tensor(self.scale, dtype=Q.dtype, device=Q.device)
+        attention_scores = torch.matmul(Q, K.transpose(-2, -1)) * scale
         
         # Apply attention mask if provided
         if attention_mask is not None:
@@ -107,7 +108,7 @@ class MultiHeadAttention(nn.Module):
         
         # Softmax to get attention weights
         attention_weights = F.softmax(attention_scores, dim=-1)
-        attention_weights = self.dropout(attention_weights)
+        attention_weights = self.dropout(attention_weights).to(dtype=V.dtype)
         
         # Apply attention to values
         attended_values = torch.matmul(attention_weights, V)
@@ -210,20 +211,26 @@ class ContextAwareGating(nn.Module):
         """
         batch_size, seq_len, hidden_size = hidden_states.shape
         
-        # Prepare attention mask for multi-head attention
-        if attention_mask is not None:
-            # Convert to attention mask format (large negative values for masked positions)
-            attention_mask = attention_mask.unsqueeze(1).unsqueeze(1)  # [batch_size, 1, 1, seq_len]
-            attention_mask = (1.0 - attention_mask) * -10000.0
-        
-        # Apply self-attention to capture sequence context
-        attended_states, attention_weights = self.attention(
-            query=hidden_states,
-            key=hidden_states,
-            value=hidden_states,
-            attention_mask=attention_mask,
-            return_attention_weights=return_attention_weights
-        )
+        # For incremental generation (seq_len=1), skip self-attention to avoid dimension mismatch
+        if seq_len == 1:
+            # Use direct projection for single token (incremental generation)
+            attended_states = hidden_states
+            attention_weights = None
+        else:
+            # Prepare attention mask for multi-head attention
+            if attention_mask is not None:
+                # Convert to attention mask format (large negative values for masked positions)
+                attention_mask = attention_mask.unsqueeze(1).unsqueeze(1)  # [batch_size, 1, 1, seq_len]
+                attention_mask = (1.0 - attention_mask) * -10000.0
+            
+            # Apply self-attention to capture sequence context
+            attended_states, attention_weights = self.attention(
+                query=hidden_states,
+                key=hidden_states,
+                value=hidden_states,
+                attention_mask=attention_mask,
+                return_attention_weights=return_attention_weights
+            )
         
         # Optional layer normalization
         if self.layer_norm is not None:
