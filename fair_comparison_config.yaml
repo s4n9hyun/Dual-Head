@@ -1,0 +1,117 @@
+# Fair Comparison Configuration for Dual-Head vs Other Methods
+# Based on the paper's experimental setup requirements
+
+# Base Model Configuration (MUST be identical for all methods)
+base_model: "argsearch/llama-7b-sft-float32"
+reward_model: "argsearch/llama-7b-rm-float32"  # For ARGS only
+
+# Dataset Configuration
+dataset:
+  name: "Anthropic/hh-rlhf"
+  train_size: 160800  # Full dataset
+  test_size: 8552
+  
+# Evaluation Configuration
+evaluation:
+  # Primary evaluation (from paper)
+  test_prompts: 300  # Random subset from test set
+  evaluation_method: "gpt4_pairwise"
+  metrics:
+    - "win_rate"
+    - "lc_win_rate"  # Length-controlled win rate
+    - "reward_score"
+    - "diversity"
+    - "coherence"
+  
+  # Generation settings (method-specific optimal from paper)
+  generation:
+    max_new_tokens: 128
+    temperatures:
+      ARGS: 0.0      # Greedy decoding
+      GenARM: 0.5    # Paper optimal
+      Dual-Head: 0.7 # Paper optimal  
+      DPO: 1.0       # Standard
+      SimPO: 1.0     # Standard
+    top_p: 0.9
+    do_sample: true
+
+# Training Configurations (method-specific)
+training:
+  # Dual-Head Configuration
+  dual_head:
+    epochs: 3
+    batch_size: 64  # 8 per device × 8 accumulation
+    learning_rate: 5e-5
+    warmup_ratio: 0.1
+    lambda_r: 1.0
+    lambda_g: 0.01
+    beta_r: 1.0
+    freeze_backbone: true
+    gating_heads: 8
+    expected_steps: 7539  # For validation
+    
+  # DPO Configuration (already trained)
+  dpo:
+    # Your existing model: /home/ibel/research/DPO/dpo-llama-7b-results/
+    method: "LoRA"
+    epochs: "varied"  # Method-specific optimal
+    note: "Pre-trained, acceptable for comparison"
+    
+  # SimPO Configuration (already trained)  
+  simpo:
+    # Your existing model: /home/ibel/research/SimPO/simpo-llama-7b-results/
+    method: "LoRA"
+    epochs: "varied"  # Method-specific optimal
+    note: "Pre-trained, acceptable for comparison"
+    
+  # GenARM Configuration (already trained)
+  genarm:
+    # Your existing model: /home/ibel/research/GenARM/checkpoints/HH/arm/
+    method: "ARM training"
+    epochs: 1  # Standard for GenARM
+    note: "Pre-trained, acceptable for comparison"
+    
+  # ARGS Configuration (no training needed)
+  args:
+    method: "test_time_only"
+    base_model: "argsearch/llama-7b-sft-float32"
+    reward_model: "argsearch/llama-7b-rm-float32"
+    k: 10  # Paper setting
+    w: 1.0  # Paper setting
+
+# Model Paths (update after retraining Dual-Head)
+model_paths:
+  dual_head: "./outputs/dual_head_full_dataset/"  # New trained model
+  dpo: "/home/ibel/research/DPO/dpo-llama-7b-results/"
+  simpo: "/home/ibel/research/SimPO/simpo-llama-7b-results/"
+  genarm: "/home/ibel/research/GenARM/checkpoints/HH/arm/args-llama-sft-7b-arm-HH-epoch_1-beta_0.05-lr_5e-4-bs_32/"
+  args_base: "argsearch/llama-7b-sft-float32"
+  args_rm: "argsearch/llama-7b-rm-float32"
+
+# Expected Results (from paper)
+paper_targets:
+  dual_head_vs_args: ">76% win rate"
+  dual_head_vs_genarm: ">64% win rate" 
+  dual_head_vs_dpo: ">52% win rate"
+  dual_head_vs_simpo: ">58% win rate"
+  efficiency_speedup: "1.7x vs test-time methods"
+  parameter_reduction: "50x vs GenARM"
+
+# Validation Checklist
+validation:
+  - "All methods use same base model (argsearch/llama-7b-sft-float32)"
+  - "All methods evaluated on same HH-RLHF test subset (300 prompts)"
+  - "Method-specific optimal temperatures used"
+  - "GPT-4 pairwise evaluation with same prompts"
+  - "Dual-Head trained on FULL dataset (not 3 steps!)"
+  - "Statistical significance testing with confidence intervals"
+  - "Multiple random seeds for robust evaluation"
+
+# Critical Notes
+notes:
+  - "NEVER use max_train_samples for Dual-Head training"
+  - "Dual-Head training should take 2-4 hours, not seconds"  
+  - "Expected ~7,539 training steps for 3 epochs"
+  - "Different training hyperparameters between methods is acceptable"
+  - "Focus on optimal performance for each method, not identical training"
+  - "Evaluation protocol matters more than training hyperparameters"

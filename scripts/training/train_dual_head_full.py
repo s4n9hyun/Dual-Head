@@ -1,13 +1,8 @@
 #!/usr/bin/env python3
 """
-Training script for Dual-Head models.
+Dual-Head model training script with full dataset support.
 
-This script supports:
-1. Training on HH-RLHF and other preference datasets
-2. Mixed SFT + preference training
-3. Multi-GPU training with accelerate
-4. LoRA fine-tuning for memory efficiency
-5. Comprehensive logging and evaluation
+Ensures complete HH-RLHF dataset usage for fair comparison.
 """
 
 import os
@@ -20,6 +15,15 @@ from typing import Optional, Dict, Any
 
 import torch
 import wandb
+
+# Fix PyTorch 2.6 weights_only issue for checkpoint loading
+import builtins
+original_torch_load = torch.load
+def patched_torch_load(*args, **kwargs):
+    if 'weights_only' not in kwargs:
+        kwargs['weights_only'] = False
+    return original_torch_load(*args, **kwargs)
+torch.load = patched_torch_load
 from transformers import (
     AutoTokenizer,
     HfArgumentParser,
@@ -46,6 +50,27 @@ from dual_head.training import (
 )
 
 logger = get_logger(__name__)
+
+EXPECTED_DATASET_SIZES = {
+    "Anthropic/hh-rlhf": {"train": 160800, "test": 8552}
+}
+
+def validate_training_config(args):
+    """Validate training configuration."""
+    if args.max_train_samples is not None and args.max_train_samples < 1000:
+        print(f"WARNING: max_train_samples={args.max_train_samples} is very small!")
+        response = input("Use FULL dataset for fair comparison? (y/N): ")
+        if response.lower() in ['y', 'yes']:
+            args.max_train_samples = None
+    
+    expected_size = EXPECTED_DATASET_SIZES.get(args.dataset_name, {}).get("train", "unknown")
+    if expected_size != "unknown":
+        effective_batch_size = args.per_device_train_batch_size * args.gradient_accumulation_steps
+        expected_steps = (expected_size // effective_batch_size) * args.num_train_epochs
+        print(f"Expected steps: {expected_steps:,}")
+        if expected_steps < 100:
+            print("ERROR: Expected steps too low")
+            sys.exit(1)
 
 
 def parse_args():
@@ -101,13 +126,13 @@ def parse_args():
         "--max_train_samples",
         type=int,
         default=None,
-        help="For debugging purposes or quicker training, truncate training dataset"
+        help="For debugging - truncate training dataset"
     )
     parser.add_argument(
         "--max_eval_samples",
         type=int,
         default=None,
-        help="For debugging purposes or quicker training, truncate validation dataset"
+        help="For debugging - truncate validation dataset"
     )
     
     # Data processing arguments
@@ -120,7 +145,7 @@ def parse_args():
     parser.add_argument(
         "--preprocessing_num_workers",
         type=int,
-        default=4,
+        default=8,
         help="Number of processes to use for data preprocessing"
     )
     parser.add_argument(
@@ -145,19 +170,19 @@ def parse_args():
     parser.add_argument(
         "--per_device_train_batch_size",
         type=int,
-        default=4,
+        default=8,
         help="Batch size per GPU/TPU core/CPU for training"
     )
     parser.add_argument(
         "--per_device_eval_batch_size",
         type=int,
-        default=4,
+        default=16,
         help="Batch size per GPU/TPU core/CPU for evaluation"
     )
     parser.add_argument(
         "--gradient_accumulation_steps",
         type=int,
-        default=1,
+        default=8,
         help="Number of updates steps to accumulate before performing a backward/update pass"
     )
     parser.add_argument(
@@ -182,7 +207,7 @@ def parse_args():
         "--warmup_ratio",
         type=float,
         default=0.1,
-        help="Linear warmup over warmup_ratio fraction of total steps"
+        help="Linear warmup over warmup_ratio * total_steps"
     )
     
     # Dual-Head specific arguments
@@ -272,13 +297,13 @@ def parse_args():
     parser.add_argument(
         "--eval_steps",
         type=int,
-        default=500,
+        default=1000,
         help="Run evaluation every X steps"
     )
     parser.add_argument(
         "--logging_steps",
         type=int,
-        default=100,
+        default=50,
         help="Log every X updates steps"
     )
     parser.add_argument(
@@ -293,6 +318,12 @@ def parse_args():
         default="steps",
         choices=["no", "steps", "epoch"],
         help="The checkpoint save strategy to use"
+    )
+    parser.add_argument(
+        "--save_total_limit",
+        type=int,
+        default=3,
+        help="Limit the total amount of checkpoints"
     )
     parser.add_argument(
         "--load_best_model_at_end",
@@ -315,7 +346,7 @@ def parse_args():
     parser.add_argument(
         "--report_to",
         type=str,
-        default="wandb",
+        default="",
         help="The list of integrations to report the results and logs to"
     )
     parser.add_argument(
@@ -361,22 +392,18 @@ def parse_args():
         help="Number of subprocesses to use for data loading"
     )
     parser.add_argument(
-        "--save_total_limit",
-        type=int,
-        default=3,
-        help="Limit the total amount of checkpoints"
-    )
-    parser.add_argument(
         "--resume_from_checkpoint",
         type=str,
         default=None,
         help="The path to a folder with a valid checkpoint for your model"
     )
     
-    return parser.parse_args()
+    args = parser.parse_args()
+    validate_training_config(args)
+    return args
 
 
-def setup_logging(training_args):
+def setup_logging(args):
     """Setup logging configuration."""
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
@@ -384,7 +411,7 @@ def setup_logging(training_args):
         level=logging.INFO,
     )
     
-    # Set transformers logging level
+    # Suppress verbose transformers logging
     logging.getLogger("transformers").setLevel(logging.WARNING)
     logging.getLogger("datasets").setLevel(logging.WARNING)
 
@@ -393,15 +420,12 @@ def load_datasets(args):
     """Load and prepare datasets for training."""
     print("Loading datasets...")
     
-    # Load preference dataset
     if args.dataset_name:
         if args.dataset_name == "Anthropic/hh-rlhf":
             preference_dataset = load_dataset(args.dataset_name, split="train")
         else:
             preference_dataset = load_dataset(
-                args.dataset_name,
-                args.dataset_config_name,
-                split="train"
+                args.dataset_name, args.dataset_config_name, split="train"
             )
     elif args.train_file:
         data_files = {"train": args.train_file}
@@ -411,23 +435,24 @@ def load_datasets(args):
     else:
         raise ValueError("Must provide either dataset_name or train_file")
     
-    # Load SFT dataset if specified
     sft_dataset = None
     if args.sft_dataset_name:
         print(f"Loading SFT dataset: {args.sft_dataset_name}")
         sft_dataset = load_dataset(args.sft_dataset_name, split="train")
     
-    # Apply dataset size limits
+    # Validate dataset size
+    original_size = len(preference_dataset)
+    expected_size = EXPECTED_DATASET_SIZES.get(args.dataset_name, {}).get("train", "unknown")
+    print(f"Dataset size: {original_size:,} (expected: {expected_size})")
+    
     if args.max_train_samples:
+        print(f"WARNING: Truncating to {args.max_train_samples:,} samples")
         preference_dataset = preference_dataset.select(range(args.max_train_samples))
         if sft_dataset:
             sft_samples = int(args.max_train_samples * args.sft_ratio)
             sft_dataset = sft_dataset.select(range(min(sft_samples, len(sft_dataset))))
     
-    print(f"Preference dataset size: {len(preference_dataset)}")
-    if sft_dataset:
-        print(f"SFT dataset size: {len(sft_dataset)}")
-    
+    print(f"Final dataset size: {len(preference_dataset):,}")
     return preference_dataset, sft_dataset
 
 
@@ -461,7 +486,7 @@ def prepare_datasets(preference_dataset, sft_dataset, tokenizer, args):
             processed_preference_dataset,
             sft_ratio=args.sft_ratio
         )
-        print(f"Mixed dataset size: {len(train_dataset)}")
+        print(f"Mixed dataset size: {len(train_dataset):,}")
     else:
         train_dataset = processed_preference_dataset
     
@@ -469,21 +494,23 @@ def prepare_datasets(preference_dataset, sft_dataset, tokenizer, args):
     val_size = min(1000, len(train_dataset) // 10)
     eval_dataset = train_dataset.select(range(val_size))
     
+    print(f"Training dataset size: {len(train_dataset):,}")
+    print(f"Evaluation dataset size: {len(eval_dataset):,}")
+    
     return train_dataset, eval_dataset
 
 
 def create_model_and_tokenizer(args):
-    """Create model and tokenizer."""
-    print("Loading tokenizer and model...")
+    """Create Dual-Head model and tokenizer."""
+    print("Creating model and tokenizer...")
     
     # Load tokenizer
     tokenizer = AutoTokenizer.from_pretrained(
         args.tokenizer_name if args.tokenizer_name else args.model_name_or_path,
-        use_fast=True,
         trust_remote_code=True,
     )
     
-    # Set pad token if not available
+    # Set pad token
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     
@@ -491,7 +518,15 @@ def create_model_and_tokenizer(args):
     dual_head_config = DualHeadConfig(
         backbone_name_or_path=args.model_name_or_path,
         freeze_backbone=args.freeze_backbone,
+        
+        # Head configuration
+        lm_bias=False,
+        rm_bias=False,
+        
+        # Gating configuration
         gating_num_heads=args.gating_num_heads,
+        
+        # Training configuration
         lambda_r=args.lambda_r,
         lambda_g=args.lambda_g,
         beta_r=args.beta_r,
@@ -500,11 +535,10 @@ def create_model_and_tokenizer(args):
     # Create Dual-Head model
     model = DualHeadModel(dual_head_config)
     
-    # Print parameter statistics
-    param_stats = model.get_parameter_statistics()
-    print("Model parameter statistics:")
-    for key, value in param_stats.items():
-        print(f"  {key}: {value}")
+    param_stats = model.module.get_parameter_statistics() if hasattr(model, 'module') else model.get_parameter_statistics()
+    print("Model parameters:")
+    print(f"  Total: {param_stats['total_params']:,}")
+    print(f"  Trainable: {param_stats['total_trainable']:,} ({param_stats['trainable_percentage']:.1f}%)")
     
     return model, tokenizer
 
@@ -562,7 +596,6 @@ def setup_wandb(args, training_args):
     if hasattr(training_args, 'report_to') and training_args.report_to and "wandb" in training_args.report_to:
         try:
             import wandb
-            
             wandb.init(
                 project=args.wandb_project,
                 entity=args.wandb_entity,
@@ -570,24 +603,21 @@ def setup_wandb(args, training_args):
                 config={
                     "model_name": args.model_name_or_path,
                     "dataset_name": args.dataset_name,
-                    "max_seq_length": args.max_seq_length,
                     "learning_rate": args.learning_rate,
-                    "batch_size": args.per_device_train_batch_size,
                     "lambda_r": args.lambda_r,
                     "lambda_g": args.lambda_g,
                     "beta_r": args.beta_r,
-                    "freeze_backbone": args.freeze_backbone,
-                    "gating_num_heads": args.gating_num_heads,
                 }
             )
         except Exception as e:
             print(f"Warning: Failed to initialize wandb: {e}")
-    else:
-        print("Wandb logging disabled")
 
 
 def main():
     """Main training function."""
+    print("Starting Dual-Head Training")
+    print("=" * 40)
+    
     args = parse_args()
     
     # Setup logging
@@ -596,6 +626,8 @@ def main():
     # Set seed for reproducibility
     set_seed(args.seed)
     accelerate_set_seed(args.seed)
+    
+    print(f"Random seed: {args.seed}")
     
     # Create output directory
     os.makedirs(args.output_dir, exist_ok=True)
@@ -647,8 +679,14 @@ def main():
         loss_config=loss_config,
     )
     
-    # Training
-    logger.info("Starting training...")
+    effective_batch_size = training_args.per_device_train_batch_size * training_args.gradient_accumulation_steps
+    expected_steps = (len(train_dataset) // effective_batch_size) * training_args.num_train_epochs
+    print(f"\nTraining setup:")
+    print(f"  Examples: {len(train_dataset):,}")
+    print(f"  Expected steps: {expected_steps:,}")
+    
+    print("\nStarting training (expected: 2-4 hours)...")
+    
     if args.resume_from_checkpoint:
         trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
     else:
@@ -657,18 +695,29 @@ def main():
     # Save final model
     trainer.save_model()
     
-    # Save final statistics
     final_stats = {
         "parameter_statistics": model.get_parameter_statistics(),
         "training_completed": True,
+        "final_training_state": {
+            "global_step": trainer.state.global_step,
+            "epoch": trainer.state.epoch,
+        },
+        "gating_stats_history": getattr(trainer, 'gating_stats_history', []),
+        "preference_accuracy_history": getattr(trainer, 'preference_accuracy_history', []),
     }
     
     with open(os.path.join(args.output_dir, "final_stats.json"), "w") as f:
         json.dump(final_stats, f, indent=2, default=str)
     
-    logger.info("Training completed successfully!")
+    print(f"\nTraining completed!")
+    print(f"Steps: {trainer.state.global_step:,}, Epochs: {trainer.state.epoch:.2f}")
+    print(f"Model saved to: {args.output_dir}")
     
-    if "wandb" in training_args.report_to:
+    if trainer.state.global_step < 100:
+        print("WARNING: Very few training steps - check configuration!")
+    
+    if hasattr(training_args, 'report_to') and "wandb" in training_args.report_to:
+        import wandb
         wandb.finish()
 
 
