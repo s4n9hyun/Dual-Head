@@ -11,12 +11,12 @@ abstract: |
   the base LLM frozen. Unlike existing approaches that use separate
   reward models or fixed fusion weights, Dual-Head employs dynamic
   token-level fusion guided by attention over sequence history. Our
-  method achieves superior alignment performance compared to both
-  training-time and test-time baselines while maintaining computational
-  efficiency. Extensive experiments on standard benchmarks demonstrate
-  that Dual-Head matches DPO performance while enabling flexible
-  multi-objective alignment and weak-to-strong guidance without
-  retraining the base model.
+  approach achieves significant parameter efficiency (50× reduction
+  compared to GenARM) while maintaining competitive performance among
+  test-time methods. Experiments on HH-RLHF demonstrate that while
+  Dual-Head faces challenges competing with training-time methods like
+  DPO (34.7% win rate), it outperforms some test-time baselines like
+  ARGS while providing architectural innovations for efficient alignment.
 ---
 
 # Introduction
@@ -56,19 +56,19 @@ reward modeling based on the current hidden state.
 effective alignment can be achieved with dramatically fewer parameters,
 enabling practical deployment advantages.
 
-Extensive experiments demonstrate that Dual-Head:
+Experiments on HH-RLHF demonstrate that Dual-Head:
 
-- Matches the performance of training-time methods like DPO while
-  maintaining test-time flexibility
+- Achieves significant parameter efficiency with 50× fewer parameters
+  than GenARM (131M vs 6.7B) while maintaining test-time flexibility
 
-- Outperforms existing test-time baselines (ARGS, GenARM) on standard
-  alignment benchmarks
+- Outperforms ARGS (34.7% vs 28.3% win rate against DPO) among 
+  test-time methods, though underperforming GenARM (45.3% win rate)
 
-- Enables efficient weak-to-strong guidance and multi-objective
-  alignment
+- Provides architectural innovations for context-aware alignment
+  without requiring multiple model evaluations
 
-- Provides superior inference efficiency compared to methods requiring
-  multiple model evaluations
+- Faces performance challenges against training-time methods like DPO,
+  indicating areas for future improvement
 
 # Related Work
 
@@ -335,94 +335,72 @@ architectures on standard alignment benchmarks:
 ## Main Results
 
 ::: {#tab:main_results}
-  Comparison             Win Rate (%)   LC Win Rate (%)
-  --------------------- -------------- -----------------
-  Dual-Head vs DPO        52.3 ± 1.1      64.2 ± 0.9
-  Dual-Head vs SimPO      58.7 ± 0.9      71.8 ± 0.8
-  Dual-Head vs ARGS       76.2 ± 0.8      85.4 ± 0.7
-  Dual-Head vs GenARM     64.8 ± 0.9      78.1 ± 0.8
+  Comparison             Win Rate (%)   Tie Rate (%)   Loss Rate (%)
+  --------------------- -------------- -------------- ---------------
+  Dual-Head vs DPO        34.7 (104)     6.7 (20)      58.7 (176)
+  ARGS vs DPO             28.3 (85)      15.0 (45)     56.7 (170)
+  GenARM vs DPO           45.3 (136)     15.3 (46)     39.3 (118)
 
   : Pairwise comparison results via GPT-4 evaluation on 300 test prompts
-  from HH-RLHF. Win rates show how often Dual-Head is preferred over
-  each baseline.
+  from HH-RLHF. Win rates show how often each method is preferred over
+  DPO baseline. Numbers in parentheses show absolute counts.
 :::
 
 **Key Findings:**
 
-1.  **Superior Test-Time Performance**: Dual-Head significantly
-    outperforms existing test-time methods, achieving 76.2% win rate
-    against ARGS and 64.8% against GenARM
+1.  **Performance Gap with DPO**: Dual-Head achieves 34.7% win rate
+    against DPO, indicating room for improvement in training-time
+    competitive performance
 
-2.  **Competitive with Training Methods**: Dual-Head achieves 52.3% win
-    rate against DPO and 58.7% against SimPO while maintaining test-time
-    flexibility
+2.  **Mixed Test-Time Results**: While outperforming ARGS (28.3% vs DPO),
+    Dual-Head underperforms GenARM (45.3% vs DPO) on the same evaluation
 
-3.  **Strong LC Performance**: Consistently high LC win rates
-    (64.2-85.4%) demonstrate robust preference across all comparisons
+3.  **Parameter Efficiency Trade-off**: The 50× parameter reduction 
+    (131M vs 6.7B) comes with performance costs that need addressing
 
-## Cross-Architecture Evaluation
+## Performance Analysis and Limitations
 
-To demonstrate generalizability, we evaluate Dual-Head across different
-backbone architectures using the same pairwise comparison protocol.
+Our evaluation reveals important insights about the Dual-Head approach's
+current performance characteristics and areas for improvement.
 
-::: {#tab:cross_arch}
-+------------+---------------------+--------------+-----------------+
-| Backbone   | Comparison          | Win Rate (%) | LC Win Rate (%) |
-+:===========+:====================+:============:+:===============:+
-| LLaMA-7B   | Dual-Head vs DPO    | 52.3 ± 1.1   | 64.2 ± 0.9      |
-|            +---------------------+--------------+-----------------+
-|            | Dual-Head vs SimPO  | 58.7 ± 0.9   | 71.8 ± 0.8      |
-|            +---------------------+--------------+-----------------+
-|            | Dual-Head vs ARGS   | 76.2 ± 0.8   | 85.4 ± 0.7      |
-|            +---------------------+--------------+-----------------+
-|            | Dual-Head vs GenARM | 64.8 ± 0.9   | 78.1 ± 0.8      |
-+------------+---------------------+--------------+-----------------+
-| Mistral-7B | Dual-Head vs DPO    | 54.1 ± 1.2   | 65.8 ± 1.0      |
-|            +---------------------+--------------+-----------------+
-|            | Dual-Head vs SimPO  | 59.3 ± 1.0   | 72.4 ± 0.9      |
-|            +---------------------+--------------+-----------------+
-|            | Dual-Head vs ARGS   | 74.6 ± 0.9   | 83.9 ± 0.8      |
-|            +---------------------+--------------+-----------------+
-|            | Dual-Head vs GenARM | 63.2 ± 1.1   | 76.8 ± 0.9      |
-+------------+---------------------+--------------+-----------------+
+**Performance Challenges:**
+The current implementation faces significant challenges when compared to
+established methods. Against DPO, Dual-Head achieves only 34.7% win rate,
+substantially lower than the 45.3% achieved by GenARM on the same evaluation.
+This suggests that while the architectural innovations are promising, the
+current training methodology may be suboptimal.
 
-: Cross-architecture pairwise comparison results. Win rates show how
-often Dual-Head is preferred over each baseline across different
-backbones.
-:::
+**Test-Time Method Comparison:**
+Among test-time methods, results are mixed:
+- Outperforms ARGS: 34.7% vs 28.3% win rate against DPO
+- Underperforms GenARM: 34.7% vs 45.3% win rate against DPO
 
-Our method shows consistent performance advantages across architectures,
-demonstrating that the dual-head approach generalizes beyond specific
-architectural choices. Performance patterns remain stable across both
-the LLaMA-7B and Mistral-7B backbones.
+**Parameter Efficiency vs Performance Trade-off:**
+The 50× parameter reduction comes with measurable performance costs.
+While 131M parameters provide significant efficiency gains, they may be
+insufficient to capture the complex alignment patterns that larger
+models like GenARM's 6.7B reward model can learn.
 
-## Quality and Alignment Analysis
+## Future Research Directions
 
-We analyze the quality-alignment trade-off using three key metrics
-following established evaluation protocols.
+Based on the current evaluation results, several research directions emerge
+for improving the Dual-Head approach:
 
-::: {#tab:quality_analysis}
-  Method           Average Reward ↑     Diversity ↑       Coherence ↑
-  --------------- ------------------ ----------------- -----------------
-  DPO                 3.9 ± 0.2         0.51 ± 0.02       0.67 ± 0.01
-  SimPO               3.6 ± 0.3         0.49 ± 0.02       0.66 ± 0.02
-  ARGS                4.1 ± 0.3         0.48 ± 0.02       0.65 ± 0.02
-  GenARM              3.8 ± 0.2         0.46 ± 0.03       0.63 ± 0.02
-  **Dual-Head**     **4.3 ± 0.2**     **0.53 ± 0.02**   **0.69 ± 0.01**
+**Training Methodology Improvements:**
+- **Loss Function Tuning**: The current performance gap suggests suboptimal
+  loss weight balancing (λ_R, λ_G) that requires systematic exploration
+- **Gating Mechanism Enhancement**: The attention-based gating may need
+  architectural refinements to better utilize context information
+- **Optimization Strategies**: Alternative training schedules and learning
+  rate schemes could improve convergence
 
-  : Quality and alignment analysis on HH-RLHF dataset.
-:::
-
-**Key Findings:**
-
-- **Superior Alignment**: Dual-Head achieves the highest average reward
-  (4.3), significantly outperforming all baselines
-
-- **Enhanced Diversity**: Best diversity score (0.53) among all methods,
-  indicating rich lexical variation
-
-- **Preserved Coherence**: Maintains strong contextual relevance (0.69)
-  while achieving superior alignment.
+**Architectural Refinements:**
+- **Head Capacity**: The 131M parameter heads may be undersized for complex
+  alignment tasks, requiring exploration of larger intermediate architectures
+- **Multi-Scale Fusion**: Incorporating different temporal scales in the
+  gating mechanism could improve context sensitivity
+- **Regularization Schemes**: Better regularization strategies to prevent
+  mode collapse while maintaining head specialization
 
 ## Efficiency Analysis
 
@@ -521,52 +499,73 @@ weak-to-strong transfer.
 ## Comparison with GenARM
 
 While both Dual-Head and GenARM enable test-time alignment, they differ
-fundamentally:
+fundamentally in design philosophy and performance:
 
-- **Architecture**: Integrated dual-head vs. separate autoregressive RM
+**Architectural Differences:**
+- **Integration**: Dual-head uses integrated heads vs. GenARM's separate autoregressive RM
+- **Parameters**: 131M trainable parameters vs. GenARM's 6.7B reward model
+- **Fusion**: Dynamic context-aware vs. GenARM's static weight combination
+- **Efficiency**: Single forward pass vs. GenARM's two model evaluations
 
-- **Fusion**: Dynamic context-aware vs. fixed weight combination
+**Performance Trade-offs:**
+Current evaluation reveals that GenARM's larger parameter count (6.7B) provides
+superior alignment performance (45.3% vs 34.7% win rate against DPO). This
+suggests that while Dual-Head's architectural efficiency is valuable, the
+parameter reduction may be too aggressive for the complexity of alignment tasks.
 
-- **Efficiency**: Single forward pass vs. two model evaluations
-
-- **Flexibility**: Attention-based adaptation vs. static fusion
-
-Our results show Dual-Head's architectural innovations lead to both
-better performance and efficiency.
+**Research Implications:**
+The comparison highlights the parameter-performance trade-off in test-time alignment,
+suggesting that intermediate architectures between Dual-Head's 131M and GenARM's 6.7B
+parameters may provide optimal balance of efficiency and effectiveness.
 
 ## Limitations
 
-- **Architecture Dependency**: Requires compatible backbone
-  architectures
+**Performance Gaps:**
+- **Training-Time Competition**: 34.7% win rate against DPO indicates
+  substantial room for improvement in competing with training-time methods
+- **Test-Time Performance**: Underperforming GenARM (45.3% vs 34.7% against DPO)
+  suggests current parameter allocation may be insufficient
 
-- **Training Overhead**: Dual-head training more complex than
-  trajectory-level RMs
+**Methodological Challenges:**
+- **Training Stability**: Complex multi-objective loss function requires
+  careful hyperparameter tuning and may suffer from optimization difficulties
+- **Head Capacity**: 131M parameter heads may be too small to capture
+  nuanced alignment patterns compared to larger reward models
 
-- **Memory Usage**: Additional parameters increase memory requirements
-  slightly
+**Architectural Constraints:**
+- **Backbone Dependency**: Requires compatible decoder architectures
+- **Memory Trade-offs**: While more efficient than GenARM, still increases
+  memory requirements over base models
+- **Context Length**: Attention-based gating may become computationally
+  expensive for very long sequences
 
 # Conclusion
 
 We presented Dual-Head, a novel test-time alignment architecture that
-achieves superior performance through integrated dual-head design and
-context-aware gating. Our approach matches training-time methods while
-maintaining test-time flexibility, outperforms existing test-time
-baselines, and enables efficient multi-objective alignment and
-weak-to-strong guidance.
+introduces significant architectural innovations through integrated
+dual-head design and context-aware gating. While our approach achieves
+substantial parameter efficiency (50× reduction compared to GenARM)
+and maintains test-time flexibility, the current evaluation reveals
+important performance gaps that inform future research directions.
 
-Key contributions include:
+Key contributions and findings include:
 
-1.  Novel dual-head architecture with frozen backbone for efficient
-    test-time alignment
+1.  **Novel Architecture**: Dual-head design with frozen backbone
+    enabling efficient test-time alignment with minimal trainable
+    parameters (131M vs 6.7B)
 
-2.  Context-aware gating mechanism for dynamic fusion of fluency and
-    alignment signals
+2.  **Context-Aware Gating**: Dynamic fusion mechanism using attention
+    over sequence history for adaptive alignment intervention
 
-3.  Comprehensive evaluation showing superior performance and efficiency
+3.  **Performance Analysis**: Honest evaluation showing challenges
+    against training-time methods (34.7% win rate vs DPO) while
+    outperforming some test-time baselines (ARGS: 28.3% vs DPO)
 
-4.  Theoretical analysis of expressivity and convergence properties
+4.  **Research Insights**: Identification of training methodology and
+    architectural refinements needed for competitive performance
 
-Future work will explore extending our Dual-Head approach to other
-modalities, investigating more sophisticated gating mechanisms, and
-applying the approach to specialized domains requiring precise alignment
-control.
+This work establishes a foundation for parameter-efficient test-time
+alignment while highlighting critical areas for improvement. Future
+research should focus on optimizing training procedures, exploring
+larger head architectures, and developing better fusion mechanisms
+to realize the full potential of the dual-head approach.

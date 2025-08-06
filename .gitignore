@@ -1,2 +1,320 @@
-outputs/
+# =============================================================================
+# Dual-Head Project .gitignore
+# =============================================================================
+
+# Environment and IDE
 .env
+.env.*
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+conda-env/
+.conda/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# poetry
+poetry.lock
+
+# PEP 582
+__pypackages__/
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# pytest
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# =============================================================================
+# Machine Learning & AI Specific
+# =============================================================================
+
+# Model files (large binary files)
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.pkl
+*.pickle
+*.h5
+*.hdf5
+*.onnx
+*.pb
+*.tflite
+*.ckpt
+*.tar.gz
+
+# Checkpoints and model outputs
+checkpoints/
+checkpoint/
+model_checkpoints/
+saved_models/
+trained_models/
+fine_tuned_models/
+
+# Datasets (typically large and should be downloaded separately)
+data/
+dataset/
+datasets/
+*.csv
+*.tsv
+*.json.gz
+*.jsonl.gz
+*.parquet
+*.feather
+*.arrow
+
+# Training artifacts
+logs/
+runs/
+tensorboard/
+wandb/
+mlruns/
+.mlflow/
+training_logs/
+experiment_logs/
+
+# Output directories
+outputs/
+results/
+predictions/
+generations/
+evaluations/
+responses/
+
+# Cache directories
+.cache/
+cache/
+tmp/
+temp/
+.tmp/
+.temp/
+
+# =============================================================================
+# Project Specific
+# =============================================================================
+
+# Evaluation results (can be large)
+evaluation/outputs/
+evaluation/scripts/gpt4_evaluation_results/
+*.jsonl
+
+# Experimental results
+src/dual-head/results/*/
+experiments/
+experiment_results/
+
+# Generated files
+*_responses_*.json
+*_evaluation_*.json
+final_stats.json
+
+# Configuration backups
+*.yaml.bak
+*.json.bak
+*.yml.bak
+
+# =============================================================================
+# System and OS
+# =============================================================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.tmp
+*.temp
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# =============================================================================
+# Development and Documentation
+# =============================================================================
+
+# Logs
+*.log
+logs/
+log/
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+*.lcov
+
+# nyc test coverage
+.nyc_output
+
+# Grunt intermediate storage
+.grunt
+
+# Bower dependency directory
+bower_components
+
+# node_modules (if using Node.js tools)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# dotenv environment variables file
+.env.test
+.env.production
+
+# parcel-bundler cache
+.cache
+.parcel-cache
+
+# Next.js build output
+.next
+
+# Nuxt.js build / generate output
+.nuxt
+dist
+
+# Storybook build outputs
+.out
+.storybook-out
+
+# Temporary folders
+tmp/
+temp/
+
+# =============================================================================
+# Keep These Files (Exceptions)
+# =============================================================================
+# Use ! to negate patterns for files you want to keep
+
+# Keep example configs
+!configs/example_*.yaml
+!configs/example_*.json
+
+# Keep small reference datasets
+!data/samples/
+!data/examples/
+
+# Keep documentation
+!docs/
+!README*
+!*.md
+
+# Keep requirements and setup files
+!requirements.txt
+!setup.py
+!setup.cfg
+!pyproject.toml
+
+# Keep small model configs (not the actual model weights)
+!**/config.json
+!**/tokenizer_config.json
+!**/special_tokens_map.json
+!**/tokenizer.json
